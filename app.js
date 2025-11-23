@@ -1,11 +1,5 @@
 // =========================
-// KONFIGURASI FIREBASE
-// =========================
-
-// GANTI SEMUA NILAI DI BAWAH DENGAN CONFIG DARI FIREBASE PROJECT-MU
-// (buka Firebase Console -> Project Settings -> Your apps -> SDK setup & configuration)
-// =========================
-// KONFIGURASI FIREBASE (CDN COMPAT VERSION)
+// KONFIGURASI FIREBASE (REALTIME DATABASE)
 // =========================
 
 const firebaseConfig = {
@@ -13,16 +7,15 @@ const firebaseConfig = {
   authDomain: "weeklytracker-160c6.firebaseapp.com",
   databaseURL: "https://weeklytracker-160c6-default-rtdb.firebaseio.com",
   projectId: "weeklytracker-160c6",
-  storageBucket: "weeklytracker-160c6.firebasestorage.app",
+  storageBucket: "weeklytracker-160c6.appspot.com",
   messagingSenderId: "1003431531876",
   appId: "1:1003431531876:web:92d4bde5fa7ace2463d671",
   measurementId: "G-WF2TYKCVNV"
 };
 
-// Inisialisasi Firebase & Firestore
+// Inisialisasi Firebase & Realtime Database
 firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-
+const db = firebase.database();
 
 // =========================
 // KONSTAN
@@ -63,12 +56,12 @@ function initTabs() {
   const navButtons = document.querySelectorAll(".nav-link");
   const sections = document.querySelectorAll(".tab-content");
 
-  navButtons.forEach(btn => {
+  navButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
       const targetId = btn.dataset.tab;
 
-      navButtons.forEach(b => b.classList.remove("active"));
-      sections.forEach(sec => sec.classList.remove("active"));
+      navButtons.forEach((b) => b.classList.remove("active"));
+      sections.forEach((sec) => sec.classList.remove("active"));
 
       btn.classList.add("active");
       const targetSection = document.getElementById(targetId);
@@ -79,12 +72,14 @@ function initTabs() {
   });
 }
 
-// Untuk tombol di hero yang langsung lompat ke tab Task
+// Tombol di hero yang lompat ke tab Task
 function initHeroButtonJump() {
-  document.querySelectorAll("[data-tab-jump]").forEach(btn => {
+  document.querySelectorAll("[data-tab-jump]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const targetTab = btn.dataset.tabJump;
-      const navButton = document.querySelector(`.nav-link[data-tab="${targetTab}"]`);
+      const navButton = document.querySelector(
+        `.nav-link[data-tab="${targetTab}"]`
+      );
       if (navButton) {
         navButton.click();
       }
@@ -113,43 +108,55 @@ function initTaskForm() {
     }
 
     try {
-      await db.collection("tasks").add({
+      const newTaskRef = db.ref("tasks").push();
+      await newTaskRef.set({
         title,
         category,
-        status: "pending", // "pending" | "done"
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        status: "pending",
+        createdAt: Date.now()
       });
 
       form.reset();
     } catch (error) {
       console.error("Gagal menambahkan task:", error);
-      alert("Gagal menyimpan task ke Firebase. Cek console jika ingin debugging.");
+      alert(
+        "Gagal menyimpan task ke Realtime Database. Cek console kalau mau debugging."
+      );
     }
   });
 }
 
 // =========================
-// FIRESTORE LISTENER: TASK
+// REALTIME LISTENER: TASKS
 // =========================
 function subscribeToTasks() {
-  db.collection("tasks").onSnapshot((snapshot) => {
-    currentTasks = [];
-    snapshot.forEach((doc) => {
-      currentTasks.push({ id: doc.id, ...doc.data() });
-    });
+  db.ref("tasks").on(
+    "value",
+    (snapshot) => {
+      const data = snapshot.val() || {};
+      currentTasks = [];
 
-    renderTasks();
-    renderTaskSelectOptions();
-    renderDashboard();
-  }, (error) => {
-    console.error("Error mengambil tasks:", error);
-  });
+      Object.keys(data).forEach((key) => {
+        currentTasks.push({ id: key, ...data[key] });
+      });
+
+      // Urutkan berdasarkan createdAt
+      currentTasks.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+      renderTasks();
+      renderTaskSelectOptions();
+      renderDashboard();
+    },
+    (error) => {
+      console.error("Error mengambil tasks:", error);
+    }
+  );
 }
 
-// RENDER TASK KE KOLUMNYA
+// Render task ke kolomnya
 function renderTasks() {
   // Kosongkan semua list
-  Object.values(categoryToContainerId).forEach(id => {
+  Object.values(categoryToContainerId).forEach((id) => {
     const container = document.getElementById(id);
     if (container) container.innerHTML = "";
   });
@@ -190,22 +197,34 @@ function renderTasks() {
       if (action === "toggle") {
         try {
           const newStatus = task.status === "done" ? "pending" : "done";
-          await db.collection("tasks").doc(id).update({ status: newStatus });
+          await db.ref("tasks").child(id).update({ status: newStatus });
         } catch (error) {
           console.error("Gagal mengubah status task:", error);
         }
       } else if (action === "delete") {
-        const sure = confirm("Yakin ingin menghapus task ini? Task juga akan dihapus dari jadwal.");
+        const sure = confirm(
+          "Yakin ingin menghapus task ini? Task juga akan dihapus dari jadwal."
+        );
         if (!sure) return;
 
         try {
-          // Hapus dari schedule juga
-          const schedulesSnap = await db.collection("schedule").where("taskId", "==", id).get();
-          const batch = db.batch();
-          schedulesSnap.forEach((doc) => batch.delete(doc.ref));
-          await batch.commit();
+          // Hapus semua schedule yang memakai taskId ini
+          const scheduleRef = db.ref("schedule");
+          const snap = await scheduleRef
+            .orderByChild("taskId")
+            .equalTo(id)
+            .once("value");
 
-          await db.collection("tasks").doc(id).delete();
+          const updates = {};
+          snap.forEach((child) => {
+            updates[child.key] = null; // hapus node
+          });
+
+          if (Object.keys(updates).length > 0) {
+            await scheduleRef.update(updates);
+          }
+
+          await db.ref("tasks").child(id).remove();
         } catch (error) {
           console.error("Gagal menghapus task:", error);
         }
@@ -261,39 +280,47 @@ function initScheduleForm() {
     }
 
     try {
-      await db.collection("schedule").add({
+      const newScheduleRef = db.ref("schedule").push();
+      await newScheduleRef.set({
         day,
         time,
         taskId,
         taskTitle: task.title,
         category: task.category,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        createdAt: Date.now()
       });
 
-      // Optional: reset hanya select waktu & task
       timeSelect.value = "";
       taskSelect.value = "";
     } catch (error) {
       console.error("Gagal menyimpan jadwal:", error);
-      alert("Gagal menyimpan ke Firebase.");
+      alert("Gagal menyimpan ke Realtime Database.");
     }
   });
 }
 
 // =========================
-// FIRESTORE LISTENER: SCHEDULE
+// REALTIME LISTENER: SCHEDULE
 // =========================
 function subscribeToSchedule() {
-  db.collection("schedule").onSnapshot((snapshot) => {
-    currentSchedule = [];
-    snapshot.forEach((doc) => {
-      currentSchedule.push({ id: doc.id, ...doc.data() });
-    });
+  db.ref("schedule").on(
+    "value",
+    (snapshot) => {
+      const data = snapshot.val() || {};
+      currentSchedule = [];
 
-    renderScheduleTable();
-  }, (error) => {
-    console.error("Error mengambil data schedule:", error);
-  });
+      Object.keys(data).forEach((key) => {
+        currentSchedule.push({ id: key, ...data[key] });
+      });
+
+      currentSchedule.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+
+      renderScheduleTable();
+    },
+    (error) => {
+      console.error("Error mengambil data schedule:", error);
+    }
+  );
 }
 
 // Buat grid kosong
@@ -348,7 +375,7 @@ function renderScheduleTable() {
     btn.onclick = async () => {
       const id = btn.dataset.id;
       try {
-        await db.collection("schedule").doc(id).delete();
+        await db.ref("schedule").child(id).remove();
       } catch (error) {
         console.error("Gagal menghapus jadwal:", error);
       }

@@ -159,7 +159,7 @@
           <label for="schedule-task">Task</label>
           <select id="schedule-task" required>
             <option value="">-- Pilih Task dari Daftar --</option>
-            <!-- Diisi dinamis dari Firebase -->
+            <!-- Diisi dinamis -->
           </select>
         </div>
 
@@ -228,11 +228,11 @@
     <p>⚓ Weekly Tracker &mdash; Selamat berlayar menaklukkan minggu ini.</p>
   </footer>
 
-  <!-- Firebase via CDN (gunakan versi terbaru jika perlu) -->
+  <!-- Firebase via CDN (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.3/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.3/firebase-database-compat.js"></script>
 
-  <!-- App JS -->
-  <script src="app.js"></script>
+  <!-- App JS (pakai query biar nggak ke-cache) -->
+  <script src="app.js?v=4"></script>
 </body>
 </html>
